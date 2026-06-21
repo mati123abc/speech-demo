@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Chinese Translation</title>
+
+  <style>
+    body {
+      background: #220000;
+      color: white;
+      font-family: Arial, sans-serif;
+      padding: 30px;
+      font-size: 34px;
+    }
+
+    h2 {
+      color: #ff6666;
+    }
+
+    #text {
+      margin-top: 40px;
+      font-size: 50px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+
+<body>
+  <h2>Chinese 중국어</h2>
+  <div id="text">여기에서 번역된 내용은 중국어로 나오겠습니다...</div>
+
+<script>
+  function scrollToBottom() {
+    window.scrollTo({
+      top: document.body.scrollHeight,
+      behavior: "smooth"
+    });
+  }
+
+  let lastText = "";
+
+  function updateText() {
+    const text = localStorage.getItem("zhText") || "여기에서 번역된 내용은 중국어로 나오겠습니다...";
+    if (text !== lastText) {
+      document.getElementById("text").innerText = text;
+      lastText = text;
+      scrollToBottom();
+    }
+  }
+
+  window.addEventListener("storage", updateText);
+  setInterval(updateText, 300);
+  updateText();
+</script>
+</body>
+</html>

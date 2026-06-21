@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8" />
+    <title>STT + Caption Engine</title>
+
+    <!-- Azure Speech SDK -->
+    <script src="https://aka.ms/csspeech/jsbrowserpackageraw"></script>
+    <!-- Caption Engine (glossary / cleaner / context detector) -->
+    <script src="captionEngine.js"></script>
+
+    <style>
+        body {
+            background: #000;
+            color: #fff;
+            font-family: Arial, sans-serif;
+            margin: 0;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        #header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: #111;
+            padding: 20px 30px;
+            z-index: 999;
+            border-bottom: 1px solid #333;
+        }
+
+        button {
+            font-size: 22px;
+            padding: 12px 20px;
+            margin-right: 10px;
+            cursor: pointer;
+        }
+
+        #status {
+            margin-top: 10px;
+            color: #00ff99;
+            font-size: 20px;
+        }
+
+        #content {
+            position: absolute;
+            top: 130px;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            overflow-y: auto;
+            padding: 30px;
+        }
+
+        #text {
+            font-size: 40px;
+            line-height: 1.6;
+            white-space: pre-wrap;
+        }
+
+        .lang-btn {
+            font-size: 18px;
+            padding: 10px 18px;
+        }
+
+        .lang-btn.active {
+            outline: 3px solid #fff;
+        }
+
+        #panelsContainer {
+            position: fixed;
+            top: 130px;
+            right: 20px;
+            width: 380px;
+            max-height: calc(100vh - 150px);
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            overflow-y: auto;
+            z-index: 1000;
+        }
+
+        .panel {
+            background: #111;
+            border-radius: 8px;
+            box-shadow: 0 4px 18px rgba(0,0,0,0.6);
+            overflow: hidden;
+        }
+
+        .panel.hidden {
+            display: none;
+        }
+
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 15px;
+            font-weight: bold;
+            font-size: 18px;
+        }
+
+        .panel-close {
+            cursor: pointer;
+            font-size: 18px;
+            background: transparent;
+            border: none;
+            color: inherit;
+            padding: 0 6px;
+            margin: 0;
+        }
+
+        .panel-body {
+            padding: 12px 15px;
+            font-size: 22px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            max-height: 240px;
+            overflow-y: auto;
+        }
+
+        #panel-vi .panel-header { background: #00ff99; color: #001a00; }
+        #panel-vi .panel-body { color: #00ff99; }
+
+        #panel-en .panel-header { background: #66ccff; color: #001122; }
+        #panel-en .panel-body { color: #66ccff; }
+
+        #panel-zh .panel-header { background: #ff6666; color: #220000; }
+        #panel-zh .panel-body { color: #ff6666; }
+    </style>
+</head>
+
+<body>
+
+    <div id="header">
+        <button onclick="startRealtime()">▶ Bắt đầu</button>
+        <button onclick="stopRealtime()">⏹ Dừng</button>
+        <button class="lang-btn" id="btn-vi" onclick="togglePanel('vi')">🇻🇳 Vietnamese</button>
+        <button class="lang-btn" id="btn-en" onclick="togglePanel('en')">🇺🇸 English</button>
+        <button class="lang-btn" id="btn-zh" onclick="togglePanel('zh')">🇨🇳 Chinese</button>
+        <div id="status">Chưa bắt đầu</div>
+    </div>
+
+    <div id="content">
+        <div id="text">🇰🇷</div>
+    </div>
+
+    <div id="panelsContainer">
+        <div class="panel hidden" id="panel-vi">
+            <div class="panel-header">
+                <span>🇻🇳 Vietnamese</span>
+                <button class="panel-close" onclick="togglePanel('vi')">✕</button>
+            </div>
+            <div class="panel-body" id="panel-body-vi"></div>
+        </div>
+
+        <div class="panel hidden" id="panel-en">
+            <div class="panel-header">
+                <span>🇺🇸 English</span>
+                <button class="panel-close" onclick="togglePanel('en')">✕</button>
+            </div>
+            <div class="panel-body" id="panel-body-en"></div>
+        </div>
+
+        <div class="panel hidden" id="panel-zh">
+            <div class="panel-header">
+                <span>🇨🇳 Chinese</span>
+                <button class="panel-close" onclick="togglePanel('zh')">✕</button>
+            </div>
+            <div class="panel-body" id="panel-body-zh"></div>
+        </div>
+    </div>
+
+<script>
+const SPEECH_KEY = "YOUR_AZURE_SPEECH_KEY_HERE";
+const REGION = "koreacentral";
+
+/* =========================
+   STATE
+========================= */
+let recognizer = null;
+let fullKoreanText = "";
+
+/* =========================
+   CAPTION ENGINE INIT
+========================= */
+const captionEngine = new CaptionEngine();
+
+/* =========================
+   START STT
+========================= */
+function startRealtime() {
+    if (recognizer) return;
+
+    fullKoreanText = "";
+
+    localStorage.setItem("koText", "");
+    localStorage.setItem("viText", "");
+    localStorage.setItem("enText", "");
+    localStorage.setItem("zhText", "");
+
+    document.getElementById("panel-body-vi").innerText = "";
+    document.getElementById("panel-body-en").innerText = "";
+    document.getElementById("panel-body-zh").innerText = "";
+
+    document.getElementById("text").innerText = "🇰🇷\n\n";
+
+    const speechConfig = SpeechSDK.SpeechConfig.fromSubscription(
+        SPEECH_KEY,
+        REGION
+    );
+
+    speechConfig.speechRecognitionLanguage = "ko-KR";
+
+    const audioConfig =
+        SpeechSDK.AudioConfig.fromDefaultMicrophoneInput();
+
+    recognizer = new SpeechSDK.SpeechRecognizer(
+        speechConfig,
+        audioConfig
+    );
+
+    applyPhraseList(recognizer);
+
+    document.getElementById("status").innerText = "🎧 듣는 중...";
+
+    /* =========================
+       PARTIAL (DISPLAY ONLY)
+    ========================= */
+    recognizer.recognizing = function (s, e) {
+        const partial = e.result.text || "";
+
+        if (!partial) return;
+
+        document.getElementById("text").innerText =
+            "🇰🇷\n\n" +
+            fullKoreanText +
+            "\n🟡 " +
+            partial;
+
+        requestAnimationFrame(scrollToBottom);
+    };
+
+    /* =========================
+       FINAL RESULT (SOURCE OF TRUTH)
+    ========================= */
+    recognizer.recognized = async function (s, e) {
+
+        if (e.result.reason !== SpeechSDK.ResultReason.RecognizedSpeech) {
+            return;
+        }
+
+        const rawText = e.result.text;
+
+        if (!rawText) return;
+
+        // 🧠 CAPTION ENGINE CORE (lọc nhanh, glossary tĩnh)
+        const cleanText = captionEngine.process(rawText);
+
+        if (!cleanText) return;
+
+        // 🤖 AI CORRECTION LAYER (Azure OpenAI) — sửa lỗi theo ngữ cảnh công trường
+        const correctedText = await correctText(cleanText, captionEngine.context);
+
+        // update UI
+        fullKoreanText += correctedText + "\n";
+
+        document.getElementById("text").innerText =
+            "🇰🇷\n\n" + fullKoreanText;
+
+        localStorage.setItem("koText", fullKoreanText);
+
+        scrollToBottom();
+
+        // translate (ONLY ONCE)
+        await translateText(correctedText);
+    };
+
+    // ⚠️ Đây là phần bị thiếu ở bản trước — nếu không gọi hàm này,
+    // recognizer không bao giờ thực sự bắt đầu nghe mic.
+    recognizer.startContinuousRecognitionAsync(
+        function () {
+            console.log("Continuous recognition started.");
+        },
+        function (err) {
+            console.error("Lỗi khi bắt đầu nhận diện:", err);
+            document.getElementById("status").innerText =
+                "❌ Lỗi: " + err;
+        }
+    );
+}
+
+/* =========================
+   STOP STT
+========================= */
+function stopRealtime() {
+    if (!recognizer) return;
+
+    recognizer.stopContinuousRecognitionAsync(() => {
+        recognizer.close();
+        recognizer = null;
+
+        document.getElementById("status").innerText =
+            "⏸️ 듣기 종료";
+    });
+}
+
+/* =========================
+   TOGGLE TRANSLATION PANEL
+========================= */
+function togglePanel(lang) {
+    const panel = document.getElementById("panel-" + lang);
+    const btn = document.getElementById("btn-" + lang);
+
+    panel.classList.toggle("hidden");
+    btn.classList.toggle("active", !panel.classList.contains("hidden"));
+}
+
+/* =========================
+   AI CORRECTION (gọi server.js /correct → Azure OpenAI)
+========================= */
+async function correctText(text, context) {
+    try {
+        const response = await fetch("/correct", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ text, context }),
+        });
+
+        if (!response.ok) {
+            console.error("Correct request thất bại:", response.status);
+            return text; // fail-safe: dùng nguyên văn nếu lỗi
+        }
+
+        const data = await response.json();
+        return data.corrected || text;
+    } catch (err) {
+        console.error("Lỗi khi gọi AI correction:", err);
+        return text; // fail-safe: không để lỗi này làm gãy pipeline
+    }
+}
+
+/* =========================
+   TRANSLATE (gọi server.js /translate)
+========================= */
+async function translateText(text) {
+    try {
+        const response = await fetch("/translate", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                text: text,
+                targets: ["vi", "en", "zh-Hans"],
+            }),
+        });
+
+        if (!response.ok) {
+            console.error("Translate request thất bại:", response.status);
+            return;
+        }
+
+        const data = await response.json();
+
+        if (!data || !data[0] || !data[0].translations) {
+            console.error("Translate response không hợp lệ:", data);
+            return;
+        }
+
+        const translations = data[0].translations;
+
+        const viText = translations.find(t => t.to === "vi")?.text || "";
+        const enText = translations.find(t => t.to === "en")?.text || "";
+        const zhText = translations.find(t => t.to === "zh-Hans")?.text || "";
+
+        // Cộng dồn để hiển thị dạng phụ đề liên tục, giống fullKoreanText
+        appendTranslation("vi", viText);
+        appendTranslation("en", enText);
+        appendTranslation("zh", zhText);
+    } catch (err) {
+        console.error("Lỗi khi dịch:", err);
+    }
+}
+
+/* =========================
+   APPEND + HIỂN THỊ LÊN PANEL TRỰC TIẾP
+========================= */
+function appendTranslation(lang, newText) {
+    if (!newText) return;
+
+    const storageKey = lang + "Text"; // viText / enText / zhText
+    const updated = (localStorage.getItem(storageKey) || "") + newText + "\n";
+
+    localStorage.setItem(storageKey, updated);
+
+    // cập nhật trực tiếp panel trên cùng trang stt.html (không cần mở tab khác)
+    const body = document.getElementById("panel-body-" + lang);
+    if (body) {
+        body.innerText = updated;
+        body.scrollTop = body.scrollHeight;
+    }
+}
+
+/* =========================
+   SCROLL
+========================= */
+function scrollToBottom() {
+    const content = document.getElementById("content");
+    content.scrollTop = content.scrollHeight;
+}
+
+/* =========================
+   PHRASE LIST (SAFE)
+========================= */
+function applyPhraseList(recognizer) {
+    if (!recognizer) return;
+
+    const phraseList = SpeechSDK.PhraseListGrammar.fromRecognizer(recognizer);
+
+    // nhẹ hơn trước (không over bias)
+    const phrases = [
+        "TBM",
+        "안전",
+        "작업",
+        "현장",
+        "통행로",
+        "엘리베이터홀",
+        "비계",
+        "화재",
+        "크레인"
+    ];
+
+    phrases.forEach(p => phraseList.addPhrase(p));
+
+    console.log("Phrase list loaded:", phrases.length);
+}
+</script>
+
+</body>
+
+</html>

@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Speech Translate Demo</title>
+
+  <script src="https://aka.ms/csspeech/jsbrowserpackageraw"></script>
+</head>
+
+<body style="background:black; color:white; font-size:30px; font-family:sans-serif; padding:30px;">
+
+  <h2>🎤 Speech Translate Demo</h2>
+
+  <button onclick="start()" style="font-size:30px; padding:15px;">
+    Start
+  </button>
+
+  <hr>
+
+  <p id="ko">🇰🇷 Korean text...</p>
+  <p id="vi">🇻🇳 Vietnamese...</p>
+  <p id="en">🇺🇸 English...</p>
+  <p id="zh">🇨🇳 Chinese...</p>
+
+  <script>
+    const SPEECH_KEY = "YOUR_AZURE_SPEECH_KEY_HERE";
+    const REGION = "koreacentral";
+
+    async function start() {
+      const speechConfig = SpeechSDK.SpeechConfig.fromSubscription(
+        SPEECH_KEY,
+        REGION
+      );
+
+      speechConfig.speechRecognitionLanguage = "ko-KR";
+
+      const audioConfig = SpeechSDK.AudioConfig.fromDefaultMicrophoneInput();
+
+      const recognizer = new SpeechSDK.SpeechRecognizer(
+        speechConfig,
+        audioConfig
+      );
+
+      document.getElementById("ko").innerText = "🎤 Đang nghe tiếng Hàn...";
+
+      recognizer.recognizeOnceAsync(async function(result) {
+        const koreanText = result.text;
+
+        document.getElementById("ko").innerText = "🇰🇷 " + koreanText;
+
+        const response = await fetch("http://localhost:3000/translate", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            text: koreanText,
+            targets: ["vi", "en", "zh-Hans"],
+          }),
+        });
+
+        const data = await response.json();
+
+        if (!data || !data[0] || !data[0].translations) {
+          console.error("Translate response không hợp lệ:", data);
+          return;
+        }
+
+        const translations = data[0].translations;
+
+        document.getElementById("vi").innerText =
+          "🇻🇳 " + translations.find(t => t.to === "vi").text;
+
+        document.getElementById("en").innerText =
+          "🇺🇸 " + translations.find(t => t.to === "en").text;
+
+        document.getElementById("zh").innerText =
+          "🇨🇳 " + translations.find(t => t.to === "zh-Hans").text;
+      });
+    }
+  </script>
+
+</body>
+</html>

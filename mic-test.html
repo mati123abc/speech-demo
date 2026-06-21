@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Mic Test</title>
+    <style>
+        body {
+            background: #111;
+            color: white;
+            font-family: Arial, sans-serif;
+            padding: 30px;
+            font-size: 24px;
+        }
+
+        select, button {
+            font-size: 22px;
+            padding: 10px;
+            margin: 8px 0;
+        }
+
+        #barWrap {
+            width: 100%;
+            height: 40px;
+            background: #333;
+            margin-top: 20px;
+        }
+
+        #bar {
+            height: 100%;
+            width: 0%;
+            background: lime;
+        }
+
+        #status {
+            margin-top: 20px;
+            color: #00ff99;
+        }
+
+        audio {
+            margin-top: 20px;
+            width: 100%;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>🎙 Microphone Test</h1>
+
+    <div>
+        <button onclick="loadDevices()">Load Microphones</button>
+    </div>
+
+    <div>
+        <select id="micSelect"></select>
+    </div>
+
+    <div>
+        <button onclick="startMic()">Start Mic Test</button>
+        <button onclick="startRecord()">Record 10s</button>
+        <button onclick="stopMic()">Stop</button>
+    </div>
+
+    <div id="barWrap">
+        <div id="bar"></div>
+    </div>
+
+    <div id="status">Chưa test mic</div>
+
+    <audio id="playback" controls></audio>
+
+    <script>
+        let stream = null;
+        let audioContext = null;
+        let analyser = null;
+        let mediaRecorder = null;
+        let chunks = [];
+        let rafId = null;
+
+        async function loadDevices() {
+            await navigator.mediaDevices.getUserMedia({ audio: true });
+
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const mics = devices.filter(d => d.kind === "audioinput");
+
+            const select = document.getElementById("micSelect");
+            select.innerHTML = "";
+
+            for (const mic of mics) {
+                const option = document.createElement("option");
+                option.value = mic.deviceId;
+                option.textContent = mic.label || "Microphone";
+                select.appendChild(option);
+            }
+
+            document.getElementById("status").innerText =
+                "Đã tìm thấy " + mics.length + " microphone";
+        }
+
+        async function startMic() {
+            stopMic();
+
+            const deviceId = document.getElementById("micSelect").value;
+
+            stream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    deviceId: deviceId ? { exact: deviceId } : undefined,
+                    echoCancellation: false,
+                    noiseSuppression: false,
+                    autoGainControl: false
+                }
+            });
+
+            audioContext = new AudioContext();
+            const source = audioContext.createMediaStreamSource(stream);
+
+            analyser = audioContext.createAnalyser();
+            analyser.fftSize = 2048;
+
+            source.connect(analyser);
+
+            document.getElementById("status").innerText =
+                "Đang nghe mic. Hãy nói giống tình huống công trường.";
+
+            drawLevel();
+        }
+
+        function drawLevel() {
+            const data = new Uint8Array(analyser.fftSize);
+            analyser.getByteTimeDomainData(data);
+
+            let sum = 0;
+
+            for (let i = 0; i < data.length; i++) {
+                const value = data[i] - 128;
+                sum += value * value;
+            }
+
+            const rms = Math.sqrt(sum / data.length);
+            const percent = Math.min(100, rms * 4);
+
+            document.getElementById("bar").style.width = percent + "%";
+
+            rafId = requestAnimationFrame(drawLevel);
+        }
+
+        function startRecord() {
+            if (!stream) {
+                alert("Bấm Start Mic Test trước");
+                return;
+            }
+
+            chunks = [];
+
+            mediaRecorder = new MediaRecorder(stream);
+
+            mediaRecorder.ondataavailable = function (e) {
+                chunks.push(e.data);
+            };
+
+            mediaRecorder.onstop = function () {
+                const blob = new Blob(chunks, { type: "audio/webm" });
+                const url = URL.createObjectURL(blob);
+
+                document.getElementById("playback").src = url;
+                document.getElementById("status").innerText =
+                    "Đã ghi xong. Nghe lại audio bên dưới.";
+            };
+
+            mediaRecorder.start();
+
+            document.getElementById("status").innerText =
+                "Đang ghi 10 giây...";
+
+            setTimeout(function () {
+                if (mediaRecorder && mediaRecorder.state !== "inactive") {
+                    mediaRecorder.stop();
+                }
+            }, 10000);
+        }
+
+        function stopMic() {
+            if (rafId) {
+                cancelAnimationFrame(rafId);
+                rafId = null;
+            }
+
+            if (stream) {
+                for (const track of stream.getTracks()) {
+                    track.stop();
+                }
+                stream = null;
+            }
+
+            if (audioContext) {
+                audioContext.close();
+                audioContext = null;
+            }
+
+            document.getElementById("bar").style.width = "0%";
+        }
+    </script>
+
+</body>
+</html>
